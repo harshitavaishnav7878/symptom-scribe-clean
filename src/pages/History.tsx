@@ -104,36 +104,36 @@ const History = () => {
           {history.map((entry) => (
             <Card key={entry.id}>
               <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <CardTitle className="text-lg">{entry.symptoms}</CardTitle>
-                    <CardDescription>
-                      {new Date(entry.created_at).toLocaleString()}
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={getSeverityColor(entry.severity_level)}>
-                      {entry.severity_level}
-                    </Badge>
-                    <Button
-                      variant={entry.resolved ? "outline" : "default"}
-                      size="sm"
-                      onClick={() => toggleResolved(entry.id, entry.resolved)}
-                    >
-                      {entry.resolved ? (
-                        <>
-                          <X className="w-4 h-4 mr-1" />
-                          Reopen
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="w-4 h-4 mr-1" />
-                          Resolve
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <CardTitle className="text-lg break-words">{entry.symptoms}</CardTitle>
+                  <CardDescription>
+                    {new Date(entry.created_at).toLocaleString()}
+                  </CardDescription>
                 </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <Badge variant={getSeverityColor(entry.severity_level)}>
+                    {entry.severity_level}
+                  </Badge>
+                  <Button
+                    variant={entry.resolved ? "outline" : "default"}
+                    size="sm"
+                    onClick={() => toggleResolved(entry.id, entry.resolved)}
+                  >
+                    {entry.resolved ? (
+                      <>
+                        <X className="w-4 h-4 mr-1" />
+                        Reopen
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4 mr-1" />
+                        Resolve
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
