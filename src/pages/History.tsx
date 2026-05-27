@@ -147,6 +147,17 @@ const History = () => {
                       </ul>
                     </div>
                   )}
+                  {entry.recommendations && entry.recommendations.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-sm font-semibold mb-1">Recommendations:</p>
+
+                      <ul className="text-sm text-muted-foreground list-disc list-inside">
+                        {entry.recommendations.map((rec, idx) => (
+                          <li key={idx}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {entry.risk_score !== null && (
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold">Risk Score:</p>
