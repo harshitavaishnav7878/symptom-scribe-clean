@@ -30,9 +30,35 @@ const ChatMessage = ({ role, content }: ChatMessageProps) => {
             : "bg-card text-card-foreground border border-border"
         )}
       >
-        <div className="prose prose-invert max-w-none text-sm leading-relaxed">
-  <ReactMarkdown>
-    {content}
+        <div className="text-sm leading-relaxed">
+  <ReactMarkdown
+    components={{
+      strong: ({ children }) => (
+        <strong className="font-bold text-white">
+          {children}
+        </strong>
+      ),
+
+      ul: ({ children }) => (
+        <ul className="list-disc pl-5 space-y-1">
+          {children}
+        </ul>
+      ),
+
+      li: ({ children }) => (
+        <li className="text-white">
+          {children}
+        </li>
+      ),
+
+      p: ({ children }) => (
+        <p className="mb-3 text-white">
+          {children}
+        </p>
+      ),
+    }}
+  >
+    {content.replace(/•/g, "-")}
   </ReactMarkdown>
 </div>
       </div>
