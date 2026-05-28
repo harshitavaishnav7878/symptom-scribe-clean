@@ -21,6 +21,7 @@ import {
   Mail
 } from "lucide-react";
 
+
 const Index = () => {
   const navigate = useNavigate();
   const [activeTestimonial, setActiveTestimonial] = useState(0);
@@ -564,18 +565,18 @@ const Index = () => {
           © 2026 Symptom Scribe. All rights reserved.
         </p>
         <div className="flex gap-6">
-          <a href="#" className="text-muted-foreground hover:text-primary transition-colors text-xs">
+          <Link to="/privacy" className="text-muted-foreground hover:text-primary transition-colors text-xs">
             Privacy
-          </a>
-          <a href="#" className="text-muted-foreground hover:text-primary transition-colors text-xs">
+          </Link>
+          <Link to="/terms" className="text-muted-foreground hover:text-primary transition-colors text-xs">
             Terms
-          </a>
-          <a href="#" className="text-muted-foreground hover:text-primary transition-colors text-xs">
+          </Link>
+          <Link to="/disclaimer" className="text-muted-foreground hover:text-primary transition-colors text-xs">
             Disclaimer
-          </a>
-          <a href="#" className="text-muted-foreground hover:text-primary transition-colors text-xs">
+          </Link>
+          <Link to="/accessibility" className="text-muted-foreground hover:text-primary transition-colors text-xs">
             Accessibility
-          </a>
+          </Link>
         </div>
       </div>
       

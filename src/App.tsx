@@ -17,7 +17,11 @@ import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
-
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import Disclaimer from "./pages/Disclaimer";
+import Accessibility from "./pages/Accessibility";
+import ScrollToTop from "@/components/ScrollToTop";
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -26,6 +30,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <ScrollToTop />
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
@@ -117,6 +122,31 @@ const App = () => (
                   <Settings />
                 </Layout>
               </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/privacy"
+            element={
+              <Privacy />
+            }
+          />
+          <Route
+            path="/terms"
+            element={
+              <Terms />
+            }
+          />
+          <Route
+            path="/disclaimer"
+            element={
+              <Disclaimer />
+            }
+          />
+          <Route
+            path="/accessibility"
+            element={
+              <Accessibility />
             }
           />
           <Route path="*" element={<NotFound />} />
