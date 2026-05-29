@@ -34,7 +34,7 @@ const ChatMessage = ({ role, content }: ChatMessageProps) => {
   <ReactMarkdown
     components={{
       strong: ({ children }) => (
-        <strong className="font-bold text-white">
+        <strong className="font-bold text-card-foreground">
           {children}
         </strong>
       ),
@@ -46,13 +46,13 @@ const ChatMessage = ({ role, content }: ChatMessageProps) => {
       ),
 
       li: ({ children }) => (
-        <li className="text-white">
+        <li className="text-card-foreground">
           {children}
         </li>
       ),
 
       p: ({ children }) => (
-        <p className="mb-3 text-white">
+        <p className="mb-3 text-card-foreground">
           {children}
         </p>
       ),
