@@ -79,10 +79,33 @@ const Profile = () => {
   };
 
   const validateProfile = () => {
-    if (profile.emergency_contact_phone && !/^[\d\s+()-]+$/.test(profile.emergency_contact_phone)) {
-      showWarning("Invalid Phone Number", "Please enter a valid phone number");
-      return false;
-    }
+
+    if (!profile.date_of_birth) {
+  showWarning("Missing Field", "Date of Birth is required");
+  return false;
+}
+
+if (!profile.gender) {
+  showWarning("Missing Field", "Gender is required");
+  return false;
+}
+
+if (!profile.blood_type) {
+  showWarning("Missing Field", "Blood Type is required");
+  return false;
+}
+    if (
+  profile.emergency_contact_phone &&
+  !/^\+?[0-9]{10,15}$/.test(
+    profile.emergency_contact_phone.replace(/[\s()-]/g, "")
+  )
+) {
+  showWarning(
+    "Invalid Phone Number",
+    "Please enter a valid emergency contact number"
+  );
+  return false;
+}
     
     if (profile.date_of_birth) {
       const age = new Date().getFullYear() - new Date(profile.date_of_birth).getFullYear();
@@ -228,7 +251,7 @@ const Profile = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="date_of_birth">Date of Birth</Label>
+                <Label htmlFor="date_of_birth">Date of Birth <span className="text-red-500">*</span></Label>
                 <Input
                   id="date_of_birth"
                   type="date"
@@ -238,7 +261,7 @@ const Profile = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="gender">Gender</Label>
+                <Label htmlFor="gender">Gender <span className="text-red-500">*</span></Label>
                 <Select
                   value={profile.gender}
                   onValueChange={(value) => setProfile({ ...profile, gender: value })}
@@ -256,7 +279,7 @@ const Profile = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="blood_type">Blood Type</Label>
+                <Label htmlFor="blood_type">Blood Type <span className="text-red-500">*</span></Label>
                 <Select
                   value={profile.blood_type}
                   onValueChange={(value) => setProfile({ ...profile, blood_type: value })}
