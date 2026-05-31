@@ -1,3 +1,4 @@
+
 import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -259,18 +260,30 @@ const AIHealthAssistant = () => {
                 )}
                 <div className="flex flex-col gap-1 max-w-[78%]">
                   <div
-                    className={`rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
+                    className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                       msg.role === "user"
                         ? "bg-teal-500 text-white rounded-br-sm ml-auto"
                         : "bg-muted text-foreground rounded-bl-sm border border-border"
                     }`}
                   >
-                    <span dangerouslySetInnerHTML={{ __html: msg.text
-                      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-                      .replace(/^- (.+)/gm, "<li>$1</li>")
-                      .replace(/(<li>.*<\/li>)/gs, "<ul style='padding-left:16px;margin:4px 0'>$1</ul>")
-                      .replace(/\n/g, "<br>")
-                    }} />
+                    <span dangerouslySetInnerHTML={{ __html: (() => {
+                      const lines = msg.text.split("\n");
+                      let html = "";
+                      let inList = false;
+                      for (const line of lines) {
+                        const listMatch = line.trim().match(/^[-*•]\s+(.+)/);
+                        if (listMatch) {
+                          if (!inList) { html += "<ul style='padding-left:16px;margin:6px 0;list-style:disc'>"; inList = true; }
+                          html += `<li style='margin:2px 0'>${listMatch[1].replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</li>`;
+                        } else {
+                          if (inList) { html += "</ul>"; inList = false; }
+                          if (line.trim() === "") { html += "<br>"; }
+                          else { html += `<p style='margin:2px 0'>${line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</p>`; }
+                        }
+                      }
+                      if (inList) html += "</ul>";
+                      return html;
+                    })() }} />
                   </div>
                   {/* Action cards for assistant */}
                   {msg.role === "assistant" && (
