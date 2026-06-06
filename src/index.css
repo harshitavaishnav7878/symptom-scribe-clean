@@ -195,3 +195,12 @@ body {
     background-color 0.3s ease,
     color 0.3s ease;
 }
+
+/* Hide browser native password reveal button */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  display: none !important;
+  width: 0;
+  height: 0;
+}
