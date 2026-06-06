@@ -476,57 +476,66 @@ const Metrics = () => {
                   </Table>
                 </div>
               )}
-              {historyView === "chart" && (
-                <div className="h-[400px] w-full rounded-xl border p-4">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={filteredRecords}>
-                      <CartesianGrid strokeDasharray="3 3" />
+              {historyView === "chart" &&
+                (historyMetricFilter === "all" ? (
+                  <div className="flex flex-col items-center justify-center h-[400px] w-full rounded-xl border border-dashed p-8 text-center bg-muted/20">
+                    <TrendingUp className="w-12 h-12 text-muted-foreground mb-4 opacity-60" />
+                    <h3 className="text-lg font-semibold mb-1">Chart View Disabled for "All Metrics"</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm">
+                      Please select a specific metric type from the dropdown filter above to view its trend chart.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="h-[400px] w-full rounded-xl border p-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={filteredRecords}>
+                        <CartesianGrid strokeDasharray="3 3" />
 
-                      <XAxis
-                        dataKey="recorded_at"
-                        tickFormatter={(value) =>
-                          new Date(value).toLocaleString([], {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        }
-                      />
-
-                      <YAxis />
-
-                      <Tooltip labelFormatter={(value) => formatDate(value)} />
-
-                      {isBloodPressure ? (
-                        <>
-                          <Line
-                            type="monotone"
-                            dataKey="value.systolic"
-                            stroke="#ef4444"
-                            strokeWidth={3}
-                            dot={{ r: 4 }}
-                          />
-
-                          <Line
-                            type="monotone"
-                            dataKey="value.diastolic"
-                            stroke="#3b82f6"
-                            name="Diastolic"
-                          />
-                        </>
-                      ) : (
-                        <Line
-                          type="monotone"
-                          dataKey="value.value"
-                          stroke="#8884d8"
-                          name="Value"
+                        <XAxis
+                          dataKey="recorded_at"
+                          tickFormatter={(value) =>
+                            new Date(value).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          }
                         />
-                      )}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
+
+                        <YAxis />
+
+                        <Tooltip labelFormatter={(value) => formatDate(value)} />
+
+                        {isBloodPressure ? (
+                          <>
+                            <Line
+                              type="monotone"
+                              dataKey="value.systolic"
+                              stroke="#ef4444"
+                              strokeWidth={3}
+                              dot={{ r: 4 }}
+                            />
+
+                            <Line
+                              type="monotone"
+                              dataKey="value.diastolic"
+                              stroke="#3b82f6"
+                              name="Diastolic"
+                            />
+                          </>
+                        ) : (
+                          <Line
+                            type="monotone"
+                            dataKey="value.value"
+                            stroke="#8884d8"
+                            name="Value"
+                          />
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ))}
             </>
           )}
         </CardContent>
