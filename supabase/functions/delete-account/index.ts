@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimit } from "../_shared/rateLimit.ts";
 
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
@@ -17,6 +18,7 @@ const getCorsHeaders = (origin: string | null) => ({
 });
 
 serve(async (req) => {
+  const origin = req.headers.get("origin");
   if (req.method === "OPTIONS") {
     return new Response(null, {
       headers: getCorsHeaders(origin),
@@ -24,6 +26,24 @@ serve(async (req) => {
   }
 
   try {
+    const ip =
+      req.headers.get("x-forwarded-for") ||
+      req.headers.get("cf-connecting-ip") ||
+      "unknown";
+
+    const rateLimitResult = await rateLimit(ip);
+    if (!rateLimitResult.success) {
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+        {
+          status: 429,
+          headers: {
+            ...getCorsHeaders(origin),
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
     const authHeader = req.headers.get("Authorization");
 
     if (!authHeader) {

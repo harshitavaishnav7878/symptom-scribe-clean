@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 import { RequestSchema } from "./validation.ts";
 import { detectEmergencySymptoms } from "./medicalSafety.ts";
-import { rateLimit } from "./rateLimit.ts";
+import { rateLimit } from "../_shared/rateLimit.ts";
 import { jsonResponse } from "./utils.ts";
 
 const ALLOWED_ORIGINS = [
