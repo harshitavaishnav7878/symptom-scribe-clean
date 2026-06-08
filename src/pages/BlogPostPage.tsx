@@ -1,22 +1,23 @@
+
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Calendar, Clock, BookOpen, Home } from "lucide-react";
 import { getPostBySlug } from "@/data/blogData";
-
+ 
 const categoryColors: Record<string, { border: string; bg: string; text: string; dot: string }> = {
   Wellness:      { border: "border-emerald-500/40", bg: "bg-emerald-900/20", text: "text-emerald-300", dot: "bg-emerald-400" },
   "Health Tips": { border: "border-cyan-500/40",    bg: "bg-cyan-900/20",    text: "text-cyan-300",   dot: "bg-cyan-400"    },
   "Brain Health":{ border: "border-violet-500/40",  bg: "bg-violet-900/20",  text: "text-violet-300", dot: "bg-violet-400"  },
   Guidance:      { border: "border-amber-500/40",   bg: "bg-amber-900/20",   text: "text-amber-300",  dot: "bg-amber-400"   },
 };
-
+ 
 const defaultColor = { border: "border-cyan-500/40", bg: "bg-cyan-900/20", text: "text-cyan-300", dot: "bg-cyan-400" };
-
+ 
 const BlogPostPage = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const post = getPostBySlug(slug || "");
   const color = post ? (categoryColors[post.category] || defaultColor) : defaultColor;
-
+ 
   if (!post) {
     return (
       <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center">
@@ -35,10 +36,10 @@ const BlogPostPage = () => {
       </div>
     );
   }
-
+ 
   return (
     <div className="min-h-screen bg-[#0a0f1a] text-gray-200">
-
+ 
       {/* Sticky top nav */}
       <div className="border-b border-white/[0.06] bg-[#0a0f1a]/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -58,9 +59,9 @@ const BlogPostPage = () => {
           </button>
         </div>
       </div>
-
+ 
       <div className="max-w-3xl mx-auto px-6 py-12 md:py-16">
-
+ 
         {/* Article header */}
         <div className="mb-10">
           {/* Category + icon */}
@@ -78,12 +79,12 @@ const BlogPostPage = () => {
               </span>
             </div>
           </div>
-
+ 
           {/* Title */}
           <h1 className="text-3xl md:text-4xl font-bold text-white leading-tight mb-4">
             {post.title}
           </h1>
-
+ 
           {/* Meta */}
           <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
             <span className="flex items-center gap-1.5">
@@ -95,18 +96,20 @@ const BlogPostPage = () => {
               {post.readTime}
             </span>
             <span className="text-gray-600">·</span>
-            <span className="text-gray-600 text-xs">Last updated: {post.date.split(" ").slice(1).join(" ")}</span>
+            {/* Fix 1: replaced fragile date string split with safe fallback */}
+            <span className="text-gray-600 text-xs">Last updated: {post.updatedAt || post.date}</span>
           </div>
         </div>
-
+ 
         {/* Divider */}
         <div className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent mb-10" />
-
+ 
         {/* Article body */}
         <div className="rounded-3xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
           <div className="p-8 md:p-10 space-y-8">
+            {/* Fix 3: replaced index-based key with stable heading-based key */}
             {post.content.map((section, i) => (
-              <div key={i} className={i > 0 && section.heading ? "pt-2" : ""}>
+              <div key={section.heading || i} className={i > 0 && section.heading ? "pt-2" : ""}>
                 {section.heading && (
                   <h2 className="text-lg md:text-xl font-bold text-white mb-3 flex items-center gap-2">
                     <span className={`w-1 h-5 rounded-full ${color.dot} opacity-80`} />
@@ -120,7 +123,7 @@ const BlogPostPage = () => {
             ))}
           </div>
         </div>
-
+ 
         {/* Prev / Next navigation */}
         {(post.prevPost || post.nextPost) && (
           <div className="mt-10 grid grid-cols-2 gap-4">
@@ -128,7 +131,7 @@ const BlogPostPage = () => {
             <div>
               {post.prevPost && (
                 <button
-                  onClick={() => navigate(`/blog/${post.prevPost!.slug}`)}
+                  onClick={() => navigate(`/blog/${post.prevPost.slug}`)}
                   className="group w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/15 px-5 py-5 text-left transition-all duration-200"
                 >
                   <p className="text-xs text-gray-600 flex items-center gap-1 mb-1.5 group-hover:text-gray-500 transition-colors">
@@ -140,12 +143,12 @@ const BlogPostPage = () => {
                 </button>
               )}
             </div>
-
+ 
             {/* Next */}
             <div>
               {post.nextPost && (
                 <button
-                  onClick={() => navigate(`/blog/${post.nextPost!.slug}`)}
+                  onClick={() => navigate(`/blog/${post.nextPost.slug}`)}
                   className="group w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/15 px-5 py-5 text-right transition-all duration-200"
                 >
                   <p className="text-xs text-gray-600 flex items-center justify-end gap-1 mb-1.5 group-hover:text-gray-500 transition-colors">
@@ -159,7 +162,7 @@ const BlogPostPage = () => {
             </div>
           </div>
         )}
-
+ 
         {/* Bottom nav */}
         <div className="mt-10 pt-8 border-t border-white/[0.06] flex items-center justify-between flex-wrap gap-4">
           <button
@@ -181,5 +184,5 @@ const BlogPostPage = () => {
     </div>
   );
 };
-
+ 
 export default BlogPostPage;

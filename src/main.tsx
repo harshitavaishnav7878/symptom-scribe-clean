@@ -3,6 +3,11 @@ import { browserEnv } from "./lib/env";
 import StartupDiagnostics from "./components/StartupDiagnostics";
 import "./index.css";
 
+import ErrorBoundary from "./components/ErrorBoundary";
+
+import { ThemeProvider } from "./components/theme-provider";
+
+
 const root = createRoot(document.getElementById("root")!);
 
 if (browserEnv.diagnostics.warnings.length > 0) {
@@ -14,7 +19,13 @@ if (!browserEnv.diagnostics.isValid) {
 
 	root.render(<StartupDiagnostics />);
 } else {
-	void import("./App.tsx").then(({ default: App }) => {
-		root.render(<App />);
-	});
+  void import("./App.tsx").then(({ default: App }) => {
+    root.render(
+      <ErrorBoundary>
+        <ThemeProvider>
+          <App />
+        </ThemeProvider>
+      </ErrorBoundary>
+    );
+  });
 }
