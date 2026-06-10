@@ -1,22 +1,94 @@
-// @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { RequestSchema } from "./validation.ts";
 import { detectEmergencySymptoms } from "./medicalSafety.ts";
-import { rateLimit } from "./rateLimit.ts";
+import { rateLimit } from "../_shared/rateLimit.ts";
 import { jsonResponse } from "./utils.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:8080",
+  "https://symptom-scribe.vercel.app",
+];
+
+const getCorsHeaders = (origin: string | null) => ({
+  "Access-Control-Allow-Origin":
+    origin && ALLOWED_ORIGINS.includes(origin)
+      ? origin
+      : "null",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
-};
+});
 
 serve(async (req: Request): Promise<Response> => {
+  const origin = req.headers.get("origin");
+
+  if (origin) {
+    if (!ALLOWED_ORIGINS.includes(origin)) {
+      return jsonResponse(
+        { error: "Origin not allowed" },
+        403,
+        getCorsHeaders(origin)
+      );
+    }
+  } else {
+    // Non-browser client request (missing Origin header). Require a valid verified token.
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return jsonResponse(
+        { error: "Authentication required for non-browser requests" },
+        401,
+        getCorsHeaders(null)
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+    );
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+
+    if (userError || !user) {
+      return jsonResponse(
+        { error: "Invalid or expired authorization token" },
+        401,
+        getCorsHeaders(null)
+      );
+    }
+  }
   if (req.method === "OPTIONS") {
     return new Response(null, {
-      headers: corsHeaders,
+      headers: getCorsHeaders(origin),
     });
+  }
+
+  // Enforce JWT validation for ALL non-preflight requests to prevent token budget exhaustion
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return jsonResponse(
+      { error: "Missing authorization header" },
+      401,
+      getCorsHeaders(origin)
+    );
+  }
+
+  const token = authHeader.replace("Bearer ", "");
+  const supabaseClient = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+  );
+
+  const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+
+  if (userError || !user) {
+    return jsonResponse(
+      { error: "Unauthorized access: Invalid or expired token" },
+      401,
+      getCorsHeaders(origin)
+    );
   }
 
   try {
@@ -33,7 +105,7 @@ serve(async (req: Request): Promise<Response> => {
           error: "Rate limit exceeded. Please try again later.",
         },
         429,
-        corsHeaders
+        getCorsHeaders(origin)
       );
     }
 
@@ -47,7 +119,7 @@ serve(async (req: Request): Promise<Response> => {
           error: "Invalid JSON body",
         },
         400,
-        corsHeaders
+        getCorsHeaders(origin)
       );
     }
 
@@ -60,7 +132,7 @@ serve(async (req: Request): Promise<Response> => {
           details: parsed.error.flatten(),
         },
         400,
-        corsHeaders
+        getCorsHeaders(origin)
       );
     }
 
@@ -76,33 +148,41 @@ serve(async (req: Request): Promise<Response> => {
           error: "LOVABLE_API_KEY is not configured",
         },
         500,
-        corsHeaders
+        getCorsHeaders(origin)
       );
     }
 
     const systemPrompt = `
 You are a professional medical assistant helping users understand their symptoms.
 
-Respond ONLY with valid JSON matching this schema:
+Provide a clear, detailed, and helpful response in standard Markdown format. You MUST structure your response with the following sections and exact headers so the frontend can parse them properly:
 
-{
-  "summary": "string",
-  "possible_causes": ["string"],
-  "recommendations": ["string"],
-  "severity": "Low | Moderate | High"
-}
+### Severity Level
+Severity Level: ${
+      safetyCheck.isEmergency
+        ? "High"
+        : "[Low | Moderate | High] (choose the appropriate one based on symptoms)"
+    }
 
-Do not return markdown.
-Do not wrap JSON in code blocks.
+### Possible Causes
+Provide a bulleted list of possible causes:
+- [Cause 1]
+- [Cause 2]
 
-${safetyCheck.isEmergency
-        ? `
+### Recommendations
+Provide self-care steps or action items:
+- [Recommendation 1]
+- [Recommendation 2]
+
+${
+  safetyCheck.isEmergency
+    ? `
 IMPORTANT:
-The user's symptoms may indicate a medical emergency.
-Strongly encourage immediate professional medical attention.
+The user's symptoms indicate a potential medical emergency.
+You MUST set the Severity Level to High, and strongly advise immediate professional medical attention or visiting the nearest emergency room.
 `
-        : ""
-      }
+    : ""
+}
 
 ⚠️ Important: This is general health information only. Consult a qualified healthcare provider for diagnosis and treatment.
 `;
@@ -144,7 +224,7 @@ Strongly encourage immediate professional medical attention.
           status: response.status,
         },
         response.status,
-        corsHeaders
+        getCorsHeaders(origin)
       );
     }
 
@@ -154,14 +234,14 @@ Strongly encourage immediate professional medical attention.
           error: "Empty AI response body",
         },
         500,
-        corsHeaders
+        getCorsHeaders(origin)
       );
     }
 
     return new Response(response.body, {
       status: 200,
       headers: {
-        ...corsHeaders,
+        ...getCorsHeaders(origin),
         "Content-Type": "text/event-stream",
       },
     });
@@ -176,7 +256,7 @@ Strongly encourage immediate professional medical attention.
             : "Unknown server error",
       },
       500,
-      corsHeaders
+      getCorsHeaders(origin)
     );
   }
 });

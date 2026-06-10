@@ -3,9 +3,21 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, X, Trash2, Eye } from "lucide-react";
+import { CheckCircle, X, Trash2, Eye, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { showSuccess, showError } from "@/lib/toast-helpers";
+import { db, syncOfflineData } from "@/lib/offline-db";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface SymptomEntry {
   id: string;
@@ -18,33 +30,35 @@ interface SymptomEntry {
   created_at: string;
 }
 
-const getStorageKey = (userId: string) => `hidden_symptom_entries_${userId}`;
-
-const loadHiddenIds = (userId: string): Set<string> => {
-  try {
-    const raw = localStorage.getItem(getStorageKey(userId));
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch {
-    return new Set();
-  }
-};
-
-const saveHiddenIds = (userId: string, ids: Set<string>) => {
-  try {
-    localStorage.setItem(getStorageKey(userId), JSON.stringify([...ids]));
-  } catch {}
-};
-
 const History = () => {
   const [history, setHistory] = useState<SymptomEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-  const [userId, setUserId] = useState<string | null>(null);
-  const [showHidden, setShowHidden] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("all");
   const { toast } = useToast();
+  const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
 
   useEffect(() => {
     fetchHistory();
+
+    const handleOnline = async () => {
+      setIsOnline(true);
+      const synced = await syncOfflineData();
+      if (synced) {
+        fetchHistory();
+      }
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
   }, []);
 
   const fetchHistory = async () => {
@@ -52,20 +66,65 @@ const History = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      setUserId(user.id);
-      const stored = loadHiddenIds(user.id);
-      setHiddenIds(stored);
+      if (navigator.onLine) {
+        const { data, error } = await supabase
+          .from("symptom_history")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
 
-      const { data, error } = await supabase
-        .from("symptom_history")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+        if (error) throw error;
 
-      if (error) throw error;
-      setHistory(data || []);
+        if (data) {
+          // Sync with local Dexie store
+          // First, delete non-pending records in Dexie to avoid stales
+          await db.symptomHistory
+            .where("user_id")
+            .equals(user.id)
+            .filter((record) => record.pending_sync === 0 && record.pending_delete === 0 && record.pending_update === 0)
+            .delete();
+
+          // Bulk add the new ones
+          const localEntries = data.map((record: SymptomEntry) => ({
+            id: record.id,
+            user_id: record.user_id,
+            symptoms: record.symptoms,
+            severity_level: record.severity_level,
+            possible_causes: record.possible_causes,
+            recommendations: record.recommendations,
+            risk_score: record.risk_score,
+            resolved: record.resolved,
+            created_at: record.created_at || new Date().toISOString(),
+            pending_sync: 0,
+            pending_update: 0,
+            pending_delete: 0,
+          }));
+          
+          await db.symptomHistory.bulkPut(localEntries);
+        }
+      }
     } catch (error) {
-      console.error("Error fetching history:", error);
+      console.warn("Error fetching history from Supabase, falling back to local DB:", error);
+    }
+
+    // Load from local Dexie database for the UI (both online & offline)
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const localRecords = await db.symptomHistory
+          .where("user_id")
+          .equals(user.id)
+          .filter((record) => record.pending_delete === 0)
+          .toArray();
+
+        // Sort by created_at desc
+        localRecords.sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        setHistory(localRecords as unknown as SymptomEntry[]);
+      }
+    } catch (err) {
+      console.error("Error loading local symptoms:", err);
     } finally {
       setLoading(false);
     }
@@ -73,19 +132,32 @@ const History = () => {
 
   const toggleResolved = async (id: string, currentStatus: boolean) => {
     try {
-      const { error } = await supabase
-        .from("symptom_history")
-        .update({ resolved: !currentStatus })
-        .eq("id", id);
+      const newStatus = !currentStatus;
 
-      if (error) throw error;
+      if (navigator.onLine) {
+        const { error } = await supabase
+          .from("symptom_history")
+          .update({ resolved: newStatus })
+          .eq("id", id);
+
+        if (error) throw error;
+
+        // Update local Dexie record
+        await db.symptomHistory.update(id, { resolved: newStatus, pending_update: 0 });
+      } else {
+        // Offline mode: save locally and mark as pending_update
+        await db.symptomHistory.update(id, { resolved: newStatus, pending_update: 1 });
+      }
 
       toast({
         title: "Status Updated",
-        description: !currentStatus ? "Marked as resolved" : "Marked as unresolved",
+        description: newStatus ? "Marked as resolved" : "Marked as unresolved",
       });
 
-      fetchHistory();
+      // Update state immediately
+      setHistory((prev) =>
+        prev.map((entry) => (entry.id === id ? { ...entry, resolved: newStatus } : entry))
+      );
     } catch (error) {
       console.error("Error updating status:", error);
       toast({
@@ -96,24 +168,50 @@ const History = () => {
     }
   };
 
-  const hideEntry = (id: string, symptoms: string) => {
-    if (!userId) return;
-    const updated = new Set(hiddenIds);
-    updated.add(id);
-    setHiddenIds(updated);
-    saveHiddenIds(userId, updated);
-    const label = symptoms.length > 40 ? symptoms.substring(0, 40) + "..." : symptoms;
-    showSuccess("Record hidden", `"${label}" removed from your view`);
+  const deleteEntry = async (id: string) => {
+    try {
+      if (navigator.onLine) {
+        const { error } = await supabase
+          .from("symptom_history")
+          .delete()
+          .eq("id", id);
+
+        if (error) throw error;
+        
+        await db.symptomHistory.delete(id);
+      } else {
+        // Offline mode: mark for pending delete
+        await db.symptomHistory.update(id, { pending_delete: 1 });
+      }
+
+      showSuccess("Record deleted", "The symptom history has been permanently removed.");
+      // Update state immediately
+      setHistory((prev) => prev.filter((entry) => entry.id !== id));
+    } catch (error) {
+      console.error("Error deleting history:", error);
+      showError("Delete failed", "Could not delete this health record.");
+    }
   };
 
-  const restoreEntry = (id: string) => {
-    if (!userId) return;
-    const updated = new Set(hiddenIds);
-    updated.delete(id);
-    setHiddenIds(updated);
-    saveHiddenIds(userId, updated);
-    showSuccess("Record restored", "Entry is visible again");
+ const exportCSV = () => {
+    const headers = ["Date", "Symptoms", "Severity", "Risk Score", "Resolved"];
+    const rows = history.map((entry) => [
+      new Date(entry.created_at).toLocaleDateString(),
+      `"${entry.symptoms.replace(/"/g, '""')}"`,
+      entry.severity_level,
+      entry.risk_score,
+      entry.resolved ? "Yes" : "No",
+    ]);
+    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "symptom-history.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
+
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -135,46 +233,59 @@ const History = () => {
   }
 };
 
-  const visibleHistory = history.filter((e) => !hiddenIds.has(e.id));
-  const hiddenHistory = history.filter((e) => hiddenIds.has(e.id));
-
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Symptom History</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-foreground">Symptom History</h1>
+            {!isOnline && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/15 border border-yellow-500/30 px-3 py-1 text-xs font-semibold text-yellow-600 dark:text-yellow-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-ping" />
+                Offline Mode
+              </span>
+            )}
+          </div>
           <p className="text-muted-foreground">Review your past health consultations</p>
         </div>
-
-        {hiddenHistory.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => setShowHidden((prev) => !prev)}
-          >
-            <Eye className="w-4 h-4" />
-            {showHidden ? "Hide removed" : `Show removed (${hiddenHistory.length})`}
+        {history.length > 0 && (
+          <Button onClick={exportCSV} variant="outline" size="sm">
+            Export CSV
           </Button>
         )}
       </div>
 
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search symptoms..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        <select
+          value={severityFilter}
+          onChange={(e) => setSeverityFilter(e.target.value)}
+          className="px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="all">All Severities</option>
+          <option value="low">Low</option>
+          <option value="moderate">Moderate</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+
       {loading ? (
         <p className="text-center text-muted-foreground">Loading history...</p>
-      ) : visibleHistory.length === 0 && !showHidden ? (
+      ) : history.length === 0 ? (
         <Card>
           <CardContent className="pt-6 text-center space-y-2">
             <p className="text-muted-foreground">
-              {history.length === 0
-                ? "No symptom history yet. Start by consulting with the AI Assistant!"
-                : "All records have been removed from view."}
+              No symptom history yet. Start by consulting with the AI Assistant!
             </p>
-            {hiddenHistory.length > 0 && (
-              <Button variant="ghost" size="sm" onClick={() => setShowHidden(true)}>
-                <Eye className="w-4 h-4 mr-2" />
-                Show {hiddenHistory.length} hidden record{hiddenHistory.length > 1 ? "s" : ""}
-              </Button>
-            )}
           </CardContent>
         </Card>
       ) : (
@@ -209,15 +320,35 @@ const History = () => {
                         <><CheckCircle className="w-4 h-4 mr-1" />Resolve</>
                       )}
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => hideEntry(entry.id, entry.symptoms)}
-                      className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      title="Remove from view (record is kept safely, can be restored)"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          title="Permanently delete record"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Symptom History?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to permanently delete this health consultation record? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => deleteEntry(entry.id)}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               </CardHeader>
@@ -253,44 +384,6 @@ const History = () => {
               </CardContent>
             </Card>
           ))}
-
-          {showHidden && hiddenHistory.length > 0 && (
-            <>
-              <div className="flex items-center gap-3 pt-2">
-                <div className="flex-1 h-px bg-border" />
-                <p className="text-xs text-muted-foreground whitespace-nowrap">
-                  {hiddenHistory.length} hidden record{hiddenHistory.length > 1 ? "s" : ""}
-                </p>
-                <div className="flex-1 h-px bg-border" />
-              </div>
-
-              {hiddenHistory.map((entry) => (
-                <Card key={entry.id} className="opacity-50 border-dashed">
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <CardTitle className="text-lg line-through text-muted-foreground">
-                          {entry.symptoms}
-                        </CardTitle>
-                        <CardDescription>
-                          {new Date(entry.created_at).toLocaleString()} · hidden
-                        </CardDescription>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => restoreEntry(entry.id)}
-                        className="flex-shrink-0 gap-1"
-                      >
-                        <Eye className="w-4 h-4" />
-                        Restore
-                      </Button>
-                    </div>
-                  </CardHeader>
-                </Card>
-              ))}
-            </>
-          )}
         </div>
       )}
     </div>

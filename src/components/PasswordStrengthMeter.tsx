@@ -21,6 +21,8 @@ interface PasswordStrengthMeterProps {
   showGenerator?: boolean;
   id?: string;
   required?: boolean;
+  showPasswordState?: boolean;
+  onShowPasswordChange?: (value: boolean) => void;
 }
 
 export function PasswordStrengthMeter({
@@ -32,9 +34,15 @@ export function PasswordStrengthMeter({
   showGenerator = true,
   id = "password",
   required = true,
+  showPasswordState,
+  onShowPasswordChange,
 }: PasswordStrengthMeterProps) {
-  const [showPassword, setShowPassword] = useState(false);
+  const [localShowPassword, setLocalShowPassword] = useState(false);
   const [copiedGenerator, setCopiedGenerator] = useState(false);
+
+  const isControlled = showPasswordState !== undefined;
+  const showPassword = isControlled ? showPasswordState : localShowPassword;
+  const setShowPassword = isControlled && onShowPasswordChange ? onShowPasswordChange : setLocalShowPassword;
 
   const strength = evaluatePasswordStrength(value, policy);
   const requirements = getPasswordRequirements(policy);

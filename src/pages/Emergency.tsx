@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import {
   Phone, AlertTriangle, MapPin, ExternalLink,
@@ -6,9 +8,10 @@ import {
   ChevronDown, ChevronUp, CheckCircle2, Copy, Share2,
   ShieldAlert, Flame, Activity, PhoneCall, Volume2, VolumeX,
   Hospital, Pill, Stethoscope, Bell, BookOpen,
-  Navigation
+  Navigation, Loader2
 } from "lucide-react";
-import { showSuccess, showInfo } from "@/lib/toast-helpers";
+import { showSuccess, showInfo, showError, showWarning } from "@/lib/toast-helpers";
+import { supabase } from "@/integrations/supabase/client";
 
 // ─── Mobile Detection ────────────────────────────────────────────────────────
 const isMobile = () =>
@@ -190,6 +193,7 @@ const EmergencyClock = () => {
 };
 
 const Emergency = () => {
+  const navigate = useNavigate();
   const [expandedGuide, setExpandedGuide]         = useState<string | null>(null);
   // tracks which LIFE THREATENING guides have confirmed the call step
   const [calledFor, setCalledFor]                 = useState<string[]>([]);
@@ -200,29 +204,164 @@ const Emergency = () => {
   const [activeSection, setActiveSection]         = useState("numbers");
   const [checkedReminders, setCheckedReminders]   = useState<number[]>([]);
   const [hospitalLoading, setHospitalLoading]     = useState<string | null>(null);
+  const [detectedCountry, setDetectedCountry]     = useState<string | null>(null);
 
-  // ── Refs for each section ──────────────────────────────────────────────────
-  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // Emergency Contact & Broadcast states
+  const [profile, setProfile] = useState<{
+    emergency_contact_name: string | null;
+    emergency_contact_phone: string | null;
+    full_name: string | null;
+  } | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [alertStatus, setAlertStatus] = useState<"idle" | "locating" | "sending" | "success" | "error">("idle");
+  const [alertProgressMessage, setAlertProgressMessage] = useState("");
 
-
-
-
-
-  // ── Highlight active nav item as user scrolls ──────────────────────────────
+  // Fetch emergency contact profile info
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) setActiveSection(entry.target.id);
-        });
-      },
-      { threshold: 0.4 }
-    );
-    Object.values(sectionRefs.current).forEach((el) => {
-      if (el) observer.observe(el);
-    });
-    return () => observer.disconnect();
+    const fetchProfile = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setProfileLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("full_name, emergency_contact_name, emergency_contact_phone")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (error) {
+          console.error("Error loading emergency profile info:", error);
+        } else if (data) {
+          setProfile(data);
+        }
+      } catch (err) {
+        console.error("Error loading profile:", err);
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+
+    fetchProfile();
   }, []);
+
+  const sendBroadcast = async (lat: number | null, lon: number | null) => {
+    setAlertStatus("sending");
+    try {
+      const { data, error } = await supabase.functions.invoke("broadcast-emergency", {
+        body: {
+          latitude: lat ?? undefined,
+          longitude: lon ?? undefined,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      setAlertStatus("success");
+      showSuccess(
+        "Alert Sent!",
+        `Emergency alert successfully broadcast to ${profile?.emergency_contact_name || "your contact"}.`
+      );
+      setTimeout(() => setAlertStatus("idle"), 5000);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred while sending SMS.";
+      console.error("Failed to send broadcast:", err);
+      setAlertStatus("error");
+      showError(
+        "Broadcast Failed",
+        errorMessage
+      );
+      setTimeout(() => setAlertStatus("idle"), 5000);
+    }
+  };
+
+  const handleAlertContacts = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      showWarning("Authentication Required", "Please sign in to alert emergency contacts");
+      return;
+    }
+
+    if (!profile || !profile.emergency_contact_phone) {
+      showWarning(
+        "No Contact Saved",
+        "Please configure an emergency contact in your Health Profile page first."
+      );
+      return;
+    }
+
+    playBeep();
+    setAlertStatus("locating");
+    setAlertProgressMessage("Acquiring real-time location...");
+
+    if (!navigator.geolocation) {
+      setAlertProgressMessage("Location service not supported. Requesting broadcast anyway...");
+      sendBroadcast(null, null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setAlertProgressMessage("Location acquired. Sending broadcast...");
+        sendBroadcast(latitude, longitude);
+      },
+      (error) => {
+        console.error("Geolocation failed:", error);
+        setAlertProgressMessage("Unable to get location. Sending broadcast without coordinates...");
+        sendBroadcast(null, null);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
+  useEffect(() => {
+    // Attempt keyless geolocation lookup using ipapi.co
+    fetch("https://ipapi.co/json/")
+      .then((res) => {
+        if (!res.ok) throw new Error("Network response was not ok");
+        return res.json();
+      })
+      .then((data) => {
+        if (data.country_name) {
+          // Normalize country names if needed (e.g. "United States" vs "USA", "United Kingdom" vs "UK")
+          let mappedName = data.country_name;
+          if (mappedName === "United States") mappedName = "USA";
+          else if (mappedName === "United Kingdom") mappedName = "UK";
+          setDetectedCountry(mappedName);
+        }
+      })
+      .catch((err) => {
+        console.error("Geolocation fetch failed:", err);
+      });
+  }, []);
+
+  const getDetectedCountryMatch = () => {
+    if (!detectedCountry) return null;
+    const lower = detectedCountry.toLowerCase();
+    
+    // Direct matches
+    const directMatch = emergencyNumbers.find(n => n.country.toLowerCase() === lower);
+    if (directMatch) return directMatch;
+    
+    // Europe fallback mapping for EU countries
+    const europeanCountries = [
+      "austria", "belgium", "bulgaria", "croatia", "cyprus", "czech republic", 
+      "denmark", "estonia", "finland", "greece", "hungary", "ireland", "italy", 
+      "latvia", "lithuania", "luxembourg", "malta", "netherlands", "poland", 
+      "portugal", "romania", "slovakia", "slovenia", "spain", "sweden"
+    ];
+    if (europeanCountries.includes(lower)) {
+      return emergencyNumbers.find(n => n.country === "Europe") || null;
+    }
+    
+    return null;
+  };
+
 
   // ── Beep sound using Web Audio API ────────────────────────────────────────
   const playBeep = () => {
@@ -238,21 +377,21 @@ const Emergency = () => {
       gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
       oscillator.start(ctx.currentTime);
       oscillator.stop(ctx.currentTime + 0.4);
-    } catch (_) {}
+    } catch (err) {
+      console.error("Audio beep failed:", err);
+    }
   };
-
-  // ── Smooth scroll to section ───────────────────────────────────────────────
-  const scrollToSection = (id: string) => {
-    sectionRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-
 
   // ── Filtered numbers ───────────────────────────────────────────────────────
+  const localMatch = getDetectedCountryMatch();
   const filteredNumbers = emergencyNumbers.filter(
-    (n) =>
-      n.country.toLowerCase().includes(searchCountry.toLowerCase()) ||
-      n.number.includes(searchCountry)
+    (n) => {
+      if (localMatch && n.country === localMatch.country && !searchCountry) return false;
+      return (
+        n.country.toLowerCase().includes(searchCountry.toLowerCase()) ||
+        n.number.includes(searchCountry)
+      );
+    }
   );
 
   // ── Copy handler ───────────────────────────────────────────────────────────
@@ -354,6 +493,103 @@ const Emergency = () => {
         </span>
       </a>
 
+      {/* ── Broadcast Geolocation / Twilio SMS alerts ────────────────────── */}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <Bell className="w-5 h-5 text-destructive animate-bounce" />
+              Broadcast Emergency Alert
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Send an instant SMS with your real-time GPS coordinates and a Google Maps link to your trusted contact.
+            </p>
+          </div>
+        </div>
+
+        {profileLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <Loader2 className="w-4 h-4 animate-spin text-destructive" />
+            Checking emergency contacts...
+          </div>
+        ) : !profile || !profile.emergency_contact_phone ? (
+          <div className="bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">No Emergency Contact Configured</p>
+                <p className="text-xs opacity-90">Please set up a contact name and phone number in your profile first.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate("/profile")}
+              className="px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-colors shrink-0 self-end sm:self-auto"
+            >
+              Configure Contact
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                disabled={alertStatus !== "idle"}
+                onClick={handleAlertContacts}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-5 rounded-lg text-white font-bold text-sm transition-all duration-200 active:scale-95 shadow-sm
+                  ${alertStatus === "idle" ? "bg-destructive hover:bg-destructive/90" : ""}
+                  ${alertStatus === "locating" ? "bg-orange-500 animate-pulse" : ""}
+                  ${alertStatus === "sending" ? "bg-blue-600" : ""}
+                  ${alertStatus === "success" ? "bg-green-600 cursor-default" : ""}
+                  ${alertStatus === "error" ? "bg-destructive/80" : ""}
+                `}
+              >
+                {alertStatus === "idle" && (
+                  <>
+                    <Navigation className="w-4 h-4 animate-pulse" />
+                    ALERT TRUSTED CONTACTS
+                  </>
+                )}
+                {alertStatus === "locating" && (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    ACQUIRING GPS LOCATION...
+                  </>
+                )}
+                {alertStatus === "sending" && (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    SENDING SMS BROADCAST...
+                  </>
+                )}
+                {alertStatus === "success" && (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    EMERGENCY ALERT BROADCASTED
+                  </>
+                )}
+                {alertStatus === "error" && (
+                  <>
+                    <AlertTriangle className="w-4 h-4" />
+                    BROADCAST FAILED
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Status / Contact detail message */}
+            <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2 pt-1">
+              <div>
+                Recipient: <span className="font-semibold text-foreground">{profile.emergency_contact_name || "Emergency Contact"}</span> ({profile.emergency_contact_phone})
+              </div>
+              {alertStatus !== "idle" && alertProgressMessage && (
+                <div className="text-destructive font-semibold animate-pulse">
+                  {alertProgressMessage}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── Pulsing Alert Strip ───────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-xl border border-destructive/40 bg-destructive/5 dark:bg-destructive/10 px-4 py-3">
         <span className="absolute left-0 top-0 h-full w-1 rounded-l-xl bg-destructive animate-pulse" />
@@ -389,12 +625,19 @@ const Emergency = () => {
         </div>
       </details>
 
-      {/* ── Sticky Anchor Nav Bar ─────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border border-border rounded-xl p-1 flex gap-1">
+      {/* ── Sticky Tab Bar ────────────────────────────────────────────────── */}
+      <div
+        role="tablist"
+        aria-label="Emergency resource sections"
+        className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border border-border rounded-xl p-1 flex gap-1"
+      >
         {navItems.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            onClick={() => scrollToSection(id)}
+            role="tab"
+            aria-selected={activeSection === id}
+            aria-controls={`panel-${id}`}
+            onClick={() => setActiveSection(id)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium flex-1 justify-center transition-all duration-150
               ${activeSection === id
                 ? "bg-destructive text-white shadow-sm"
@@ -407,12 +650,21 @@ const Emergency = () => {
         ))}
       </div>
 
+      {/* ── Active Section Panel ──────────────────────────────────────────── */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeSection}
+          id={`panel-${activeSection}`}
+          role="tabpanel"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2 }}
+        >
+
       {/* ══ SECTION 1 — Emergency Numbers ════════════════════════════════════ */}
-      <div
-        id="numbers"
-        ref={(el) => { sectionRefs.current["numbers"] = el; }}
-        className="space-y-4 scroll-mt-20"
-      >
+      {activeSection === "numbers" && (
+      <div className="space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <Phone className="w-5 h-5 text-destructive" />
           <h2 className="text-xl font-bold text-foreground">Emergency Numbers</h2>
@@ -425,6 +677,50 @@ const Emergency = () => {
           onChange={(e) => setSearchCountry(e.target.value)}
           className="w-full max-w-sm px-4 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-destructive/40"
         />
+
+        {/* Featured Local Hotline Card */}
+        {localMatch && !searchCountry && (
+          <div className="p-5 rounded-xl border border-destructive bg-destructive/5 dark:bg-destructive/10 relative overflow-hidden transition-all duration-300 shadow-md">
+            <span className="absolute left-0 top-0 h-full w-1.5 bg-destructive animate-pulse" />
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-destructive text-white uppercase tracking-wider animate-pulse mb-1">
+                  <MapPin className="w-3 h-3" /> Detected Local Helpline
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-3xl">{localMatch.flag}</span>
+                  <h3 className="text-xl font-bold text-foreground">{localMatch.country}</h3>
+                </div>
+                <p className="text-xs text-muted-foreground">{localMatch.description} for your current location</p>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <p className="text-5xl font-black text-destructive leading-none tracking-tight">
+                  {localMatch.number}
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  <a
+                    href={`tel:${localMatch.callNumber}`}
+                    onClick={(e) => { if (!isMobile()) e.preventDefault(); }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-destructive hover:bg-destructive/90 text-white text-xs font-bold transition-all active:scale-95 shadow-sm"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    Call
+                  </a>
+                  <button
+                    onClick={() => handleCopyNumber(localMatch.number, localMatch.country)}
+                    className="flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg border border-destructive/20 hover:bg-destructive/5 text-destructive text-xs font-semibold transition-colors"
+                    title="Copy number"
+                  >
+                    {copiedNumber === localMatch.number
+                      ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                      : <><Copy className="w-3.5 h-3.5 mr-1" /> Copy</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredNumbers.map((item, idx) => (
@@ -475,13 +771,11 @@ const Emergency = () => {
           )}
         </div>
       </div>
+      )}
 
       {/* ══ SECTION 2 — First Aid ══════════════════════════════════════════════ */}
-      <div
-        id="firstaid"
-        ref={(el) => { sectionRefs.current["firstaid"] = el; }}
-        className="space-y-3 scroll-mt-20"
-      >
+      {activeSection === "firstaid" && (
+      <div className="space-y-3">
         <div className="flex items-center gap-2 mb-1">
           <Activity className="w-5 h-5 text-destructive" />
           <h2 className="text-xl font-bold text-foreground">First Aid Guides</h2>
@@ -596,13 +890,11 @@ const Emergency = () => {
           );
         })}
       </div>
+      )}
 
       {/* ══ SECTION 3 — Crisis Hotlines ══════════════════════════════════════ */}
-      <div
-        id="crisis"
-        ref={(el) => { sectionRefs.current["crisis"] = el; }}
-        className="space-y-3 scroll-mt-20"
-      >
+      {activeSection === "crisis" && (
+      <div className="space-y-3">
         <div className="flex items-center gap-2 mb-1">
           <Heart className="w-5 h-5 text-destructive" />
           <h2 className="text-xl font-bold text-foreground">Crisis & Mental Health Hotlines</h2>
@@ -703,12 +995,11 @@ const Emergency = () => {
         </div>
       </div>
 
+      )}
+
       {/* ══ SECTION 4 — Find Help ═════════════════════════════════════════════ */}
-      <div
-        id="find"
-        ref={(el) => { sectionRefs.current["find"] = el; }}
-        className="space-y-3 scroll-mt-20"
-      >
+      {activeSection === "find" && (
+      <div className="space-y-3">
         <div className="flex items-center gap-2 mb-1">
           <MapPin className="w-5 h-5 text-destructive" />
           <h2 className="text-xl font-bold text-foreground">Find Nearby Help</h2>
@@ -787,8 +1078,10 @@ const Emergency = () => {
           </div>
         </div>
       </div>
+      )}
 
-
+        </motion.div>
+      </AnimatePresence>
 
     </div>
   );

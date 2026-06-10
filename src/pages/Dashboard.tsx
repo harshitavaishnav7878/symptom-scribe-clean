@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Activity, TrendingUp, AlertCircle, CheckCircle } from "lucide-react";
-import { showError, showSuccess, showInfo } from "@/lib/toast-helpers";
+import { showError, showInfo } from "@/lib/toast-helpers";
 import CountUp from "react-countup";
 
 interface Stats {
@@ -13,6 +13,17 @@ interface Stats {
   recentActivity: number;
 }
 
+interface SymptomHistoryRecord {
+  id: string;
+  symptoms: string;
+  severity_level: string;
+  possible_causes: string[] | null;
+  recommendations: string[] | null;
+  risk_score: number | null;
+  resolved: boolean;
+  created_at: string;
+}
+
 const Dashboard = () => {
   const [stats, setStats] = useState<Stats>({
     totalSymptoms: 0,
@@ -20,7 +31,7 @@ const Dashboard = () => {
     avgRiskScore: 0,
     recentActivity: 0,
   });
-  const [recentHistory, setRecentHistory] = useState<any[]>([]);
+  const [recentHistory, setRecentHistory] = useState<SymptomHistoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,9 +75,6 @@ const Dashboard = () => {
         });
 
         setRecentHistory(symptoms.slice(0, 5));
-
-        // Show success toast when data loads
-        showSuccess("Dashboard Updated", `Loaded ${symptoms.length} health records`);
       } else {
         setStats({
           totalSymptoms: 0,
@@ -76,7 +84,6 @@ const Dashboard = () => {
         });
         setRecentHistory([]);
 
-        // Show info toast when no data
         showInfo("Welcome!", "Start by consulting with the AI Assistant");
       }
     } catch (error) {

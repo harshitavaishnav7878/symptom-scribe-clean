@@ -17,6 +17,8 @@ import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
+import AIHealthAssistant from "./pages/AIHealthAssistant";
+
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import Disclaimer from "./pages/Disclaimer";
@@ -25,6 +27,7 @@ import HealthLibrary from "./pages/HealthLibrary";
 import Blog from "./pages/Blog";
 import Contact from "./pages/Contact";
 import ScrollToTop from "@/components/ScrollToTop";
+import BlogPostPage from "@/pages/BlogPostPage";
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -127,6 +130,16 @@ const App = () => (
               </ProtectedRoute>
             }
           />
+           <Route
+            path="/ai-health-assistant"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <AIHealthAssistant />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
 
           <Route
             path="/privacy"
@@ -154,6 +167,7 @@ const App = () => (
           />
           <Route path="/health-library" element={<HealthLibrary />} />
           <Route path="/blog" element={<Blog />} />
+          <Route path="/blog/:slug" element={<BlogPostPage />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
