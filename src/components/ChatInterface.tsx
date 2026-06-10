@@ -10,6 +10,19 @@ import { showSuccess, showError, showInfo, showLoading } from "@/lib/toast-helpe
 import ChatLoading from "./ChatLoading";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { type Json } from "@/integrations/supabase/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
+const MAX_CHARS = 500;
 
 interface Message {
   role: "user" | "assistant";
@@ -373,18 +386,40 @@ const ChatInterface = () => {
               >
                 {session.title || "Untitled Session"}
               </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteSession(session.id);
-                }}
-                className={`opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/20 ${
-                  isActive ? "text-primary-foreground/80 hover:text-primary-foreground" : "text-muted-foreground hover:text-destructive"
-                }`}
-                title="Delete Session"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+
+              {/* FIX: AlertDialog wraps the trash button so delete requires confirmation */}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    onClick={(e) => e.stopPropagation()}
+                    className={`opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/20 ${
+                      isActive
+                        ? "text-primary-foreground/80 hover:text-primary-foreground"
+                        : "text-muted-foreground hover:text-destructive"
+                    }`}
+                    title="Delete Session"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      "{session.title || "Untitled Session"}" will be permanently deleted. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => handleDeleteSession(session.id)}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           );
         })}
@@ -469,17 +504,38 @@ const ChatInterface = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Panel */}
+        {/* Input Panel — FIX: char counter + Enter hint */}
         <div className="border-t border-border bg-card/65 p-4 shrink-0">
-          <div className="flex gap-2">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder="Describe your symptoms... (e.g., 'I have a sore throat and headache')"
-              className="min-h-[60px] max-h-[120px] resize-none rounded-xl"
-              disabled={isLoading}
-            />
+          <div className="flex gap-2 items-start">
+            <div className="flex-1 flex flex-col gap-1.5">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value.slice(0, MAX_CHARS))}
+                onKeyDown={handleKeyPress}
+                placeholder="Describe your symptoms... (e.g., 'I have a sore throat and headache')"
+                className="min-h-[60px] max-h-[120px] resize-none rounded-xl"
+                disabled={isLoading}
+              />
+              <div className="flex items-center justify-between px-1">
+                <p className="text-xs text-muted-foreground select-none">
+                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">Enter</kbd>
+                  {" "}to send{" · "}
+                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">Shift+Enter</kbd>
+                  {" "}for new line
+                </p>
+                <p
+                  className={`text-xs tabular-nums select-none transition-colors ${
+                    input.length >= MAX_CHARS
+                      ? "text-destructive font-semibold"
+                      : input.length >= MAX_CHARS * 0.85
+                      ? "text-orange-500"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {input.length}/{MAX_CHARS}
+                </p>
+              </div>
+            </div>
             <Button
               onClick={handleSend}
               disabled={!input.trim() || isLoading}
