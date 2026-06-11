@@ -1,12 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { db, type OfflineMetric } from "@/lib/offline-db";
 
-export function useMetricsHistory(userId: string) {
+
+export function useMetricsHistory(userId: string | null) {
   const [records, setRecords] = useState<OfflineMetric[]>([]);
+
   const [loading, setLoading] = useState(true);
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
+    // never query with an empty/null userId.
+    if (!userId) return;
+
     setLoading(true);
 
     if (navigator.onLine) {
@@ -18,15 +23,12 @@ export function useMetricsHistory(userId: string) {
           .order("recorded_at", { ascending: false });
 
         if (!error && data) {
-          // Sync with local Dexie store
-          // First, delete non-pending records in Dexie to avoid stales
           await db.healthMetrics
             .where("user_id")
             .equals(userId)
             .filter((record) => record.pending_sync === 0 && record.pending_delete === 0)
             .delete();
 
-          // Bulk add the new ones
           const localEntries = data.map((record) => ({
             id: record.id,
             user_id: record.user_id,
@@ -37,7 +39,7 @@ export function useMetricsHistory(userId: string) {
             pending_sync: 0,
             pending_delete: 0,
           }));
-          
+
           await db.healthMetrics.bulkPut(localEntries);
         }
       } catch (err) {
@@ -45,8 +47,6 @@ export function useMetricsHistory(userId: string) {
       }
     }
 
-    // Load from local Dexie database for the UI (both online & offline)
-    // This merges newly added offline records (pending_sync = 1) and excludes deleted offline ones
     try {
       const localRecords = await db.healthMetrics
         .where("user_id")
@@ -54,7 +54,6 @@ export function useMetricsHistory(userId: string) {
         .filter((record) => record.pending_delete === 0)
         .toArray();
 
-      // Sort by recorded_at desc
       localRecords.sort(
         (a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()
       );
@@ -64,7 +63,7 @@ export function useMetricsHistory(userId: string) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
   const deleteRecord = async (id: string) => {
     if (navigator.onLine) {
@@ -80,21 +79,21 @@ export function useMetricsHistory(userId: string) {
       }
     }
 
-    // Offline or failed request: mark as pending delete
     await db.healthMetrics.update(id, { pending_delete: 1 });
-    // Update local UI immediately
     setRecords((prev) => prev.filter((r) => r.id !== id));
   };
 
   useEffect(() => {
+    // Only fire when userId is a real non-empty string.
     if (userId) {
       fetchHistory();
     }
-  }, [userId]);
+  }, [userId, fetchHistory]);
 
   return {
     records,
-    loading,
+    //  Still "loading" if userId hasn't resolved yet.
+    loading: loading || !userId,
     refresh: fetchHistory,
     deleteRecord,
   };
