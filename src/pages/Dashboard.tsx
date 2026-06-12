@@ -7,6 +7,7 @@ import { Activity, TrendingUp, AlertCircle, CheckCircle } from "lucide-react";
 import { showError, showInfo } from "@/lib/toast-helpers";
 import CountUp from "react-countup";
 import CardSkeleton from "@/components/ui/CardSkeleton";
+import { getCachedData } from "@/lib/cached-queries";
 
 interface Stats {
   totalSymptoms: number;
@@ -131,11 +132,7 @@ const Dashboard = () => {
         return;
       }
 
-      const { data: symptoms, error } = await supabase
-        .from("symptom_history")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const { data: symptoms, error } = await getCachedData<SymptomHistoryRecord[]>("symptom_history");
 
       if (error) {
         showError("Error loading dashboard", "Could not fetch your health data");

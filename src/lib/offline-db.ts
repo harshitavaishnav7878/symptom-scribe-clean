@@ -1,6 +1,7 @@
 import Dexie, { type Table } from "dexie";
 import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
+import { invalidateCache } from "@/lib/cached-queries";
 
 export interface OfflineMetric {
   id: string;
@@ -140,6 +141,13 @@ export const syncOfflineData = async (): Promise<boolean> => {
         await db.symptomHistory.update(record.id, { pending_update: 0 });
         syncedAny = true;
       }
+    }
+
+    if (syncedAny) {
+      await Promise.all([
+        invalidateCache("health_metrics").catch(() => {}),
+        invalidateCache("symptom_history").catch(() => {}),
+      ]);
     }
 
     return syncedAny;

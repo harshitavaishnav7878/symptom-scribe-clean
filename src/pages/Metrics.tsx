@@ -32,6 +32,7 @@ import {
 import { showSuccess, showError } from "@/lib/toast-helpers";
 import { useMetricsHistory } from "@/hooks/useMetricsHistory";
 import { db, syncOfflineData, type OfflineMetric } from "@/lib/offline-db";
+import { invalidateCache } from "@/lib/cached-queries";
 import {
   Table,
   TableBody,
@@ -248,6 +249,8 @@ const Metrics = () => {
         });
 
         if (error) throw error;
+
+        await invalidateCache("health_metrics");
 
         // Cache locally
         await db.healthMetrics.put({

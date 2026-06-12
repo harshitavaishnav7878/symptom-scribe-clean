@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { db, type OfflineMetric } from "@/lib/offline-db";
 
 
+import { getCachedData, invalidateCache } from "@/lib/cached-queries";
+
 export function useMetricsHistory(userId: string | null) {
   const [records, setRecords] = useState<OfflineMetric[]>([]);
 
@@ -16,11 +18,7 @@ export function useMetricsHistory(userId: string | null) {
 
     if (navigator.onLine) {
       try {
-        const { data, error } = await supabase
-          .from("health_metrics")
-          .select("*")
-          .eq("user_id", userId)
-          .order("recorded_at", { ascending: false });
+        const { data, error } = await getCachedData<OfflineMetric[]>("health_metrics");
 
         if (!error && data) {
           await db.healthMetrics
@@ -55,7 +53,7 @@ export function useMetricsHistory(userId: string | null) {
         .toArray();
 
       localRecords.sort(
-        (a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()
+          (a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()
       );
       setRecords(localRecords);
     } catch (err) {
@@ -73,6 +71,7 @@ export function useMetricsHistory(userId: string | null) {
         .eq("id", id);
 
       if (!error) {
+        await invalidateCache("health_metrics");
         await db.healthMetrics.delete(id);
         fetchHistory();
         return;
