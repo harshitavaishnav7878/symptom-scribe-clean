@@ -49,10 +49,9 @@ export function useMetricsHistory(userId: string | null) {
         .filter((record) => record.pending_delete === 0)
         .toArray();
 
-      // Create a copy of the array
+      // Sort based on selected order
       const sortedRecords = [...localRecords];
 
-      // Sort based on selected order
       if (sortOrder === 'newest') {
         sortedRecords.sort(
           (a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()
