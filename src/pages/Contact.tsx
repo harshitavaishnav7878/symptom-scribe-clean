@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Mail, MessageSquare, Phone, CheckCircle } from "lucide-react";
 
 type ContactForm = {
@@ -61,6 +61,14 @@ const Contact = () => {
     setForm({ name: "", email: "", subject: "", message: "" });
     setErrors({});
   };
+  useEffect(() => {
+  const theme = localStorage.getItem('theme');
+  if (theme === 'dark') {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+}, []);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
