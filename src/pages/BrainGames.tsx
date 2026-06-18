@@ -353,7 +353,66 @@ const BrainGames = () => {
       clearTimeout(wordTimeoutRef.current);
       wordTimeoutRef.current = null;
     }
+    return () => {
+      if (wordTimeoutRef.current) {
+        clearTimeout(wordTimeoutRef.current);
+      }
+    };
   }, [activeGame]);
+
+  // Synchronize game active state with window and history hash for route protection
+  useEffect(() => {
+    const isGameActive = !!(
+      (activeGame === "memory" && memoryCards.length > 0 && !memoryGameWon) ||
+      (activeGame === "math") ||
+      (activeGame === "word" && wordSequence.length > 0) ||
+      (activeGame === "pattern" && currentQuestion !== null && !gameCompleted)
+    );
+
+    (window as any).isGameActive = isGameActive;
+
+    if (isGameActive) {
+      if (!window.location.hash.includes("game-active")) {
+        window.history.pushState(null, "", window.location.pathname + "#game-active");
+      }
+    } else {
+      if (window.location.hash.includes("game-active")) {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isGameActive) {
+        e.preventDefault();
+        e.returnValue = "";
+        return "";
+      }
+    };
+
+    const handlePopState = () => {
+      if (isGameActive && !window.location.hash.includes("game-active")) {
+        const confirmLeave = window.confirm(
+          "Are you sure you want to leave? Your active game progress will be lost."
+        );
+        if (confirmLeave) {
+          (window as any).isGameActive = false;
+          setActiveGame(null);
+          window.history.back();
+        } else {
+          window.history.pushState(null, "", window.location.pathname + "#game-active");
+        }
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handlePopState);
+      (window as any).isGameActive = false;
+    };
+  }, [activeGame, memoryCards.length, memoryGameWon, wordSequence.length, currentQuestion, gameCompleted]);
 
   // ─── Pattern Recognition Game ──────────────────────────────────────────────
 
