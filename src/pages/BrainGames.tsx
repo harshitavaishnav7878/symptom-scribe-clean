@@ -603,6 +603,8 @@ const BrainGames = () => {
       questionTimeLeft,
       patternScore,
       patternStreak,
+      level,
+      xp,
       toast,
     ]
   );
