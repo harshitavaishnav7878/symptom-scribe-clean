@@ -234,14 +234,10 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 .flashcard-back {
   transform: rotateY(180deg);
 }
-.flashcard-front {
-  background: white;
-}
 
 .flashcard-back {
-  background: white;
+  
   transform: rotateY(180deg);
-
   display: flex;
   align-items: center;
   justify-content: center;
