@@ -68,8 +68,34 @@ function hexToUint8Array(hex: string): Uint8Array {
   return new Uint8Array(pairs.map((h) => parseInt(h, 16)));
 }
 
+// ─── Per-user PBKDF2 Salt ────────────────────────────────────────────────────
+// A random 16-byte salt is generated once per user and stored in localStorage
+// keyed by user ID. This prevents cross-user precomputation attacks that would
+// be possible with a hardcoded global salt.
+
+const SALT_KEY_PREFIX = "symptom_scribe_pbkdf2_salt_";
+
+function getUserSalt(userId: string): Uint8Array {
+  const storageKey = SALT_KEY_PREFIX + userId;
+  const stored = localStorage.getItem(storageKey);
+  if (stored) {
+    const pairs = stored.match(/[\da-f]{2}/gi) || [];
+    return new Uint8Array(pairs.map((h) => parseInt(h, 16)));
+  }
+  const newSalt = crypto.getRandomValues(new Uint8Array(16));
+  const hex = Array.from(newSalt)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  localStorage.setItem(storageKey, hex);
+  return newSalt;
+}
+
+export function clearUserSalt(userId: string): void {
+  localStorage.removeItem(SALT_KEY_PREFIX + userId);
+}
+
 // Key Derivation
-export async function deriveKeyFromToken(token: string): Promise<CryptoKey> {
+export async function deriveKeyFromToken(token: string, userId?: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const tokenBytes = encoder.encode(token);
 
@@ -81,7 +107,11 @@ export async function deriveKeyFromToken(token: string): Promise<CryptoKey> {
     ["deriveKey"]
   );
 
-  const salt = encoder.encode("symptom-scribe-offline-salt");
+  // Use per-user random salt when userId is available; fall back to a
+  // deterministic domain salt for unauthenticated derivation paths.
+  const salt = userId
+    ? getUserSalt(userId)
+    : encoder.encode("symptom-scribe-offline-salt");
 
   return await crypto.subtle.deriveKey(
     {
@@ -100,7 +130,7 @@ export async function deriveKeyFromToken(token: string): Promise<CryptoKey> {
   );
 }
 
-export async function deriveSearchKeyFromToken(token: string): Promise<CryptoKey> {
+export async function deriveSearchKeyFromToken(token: string, userId?: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const tokenBytes = encoder.encode(token);
 
@@ -112,7 +142,9 @@ export async function deriveSearchKeyFromToken(token: string): Promise<CryptoKey
     ["deriveKey"]
   );
 
-  const salt = encoder.encode("symptom-scribe-search-salt");
+  const salt = userId
+    ? getUserSalt(userId)
+    : encoder.encode("symptom-scribe-search-salt");
 
   return await crypto.subtle.deriveKey(
     {
@@ -228,7 +260,7 @@ export function registerEncryptionHooks(callbacks: {
   onTokenRefreshCallback = callbacks.onTokenRefresh;
 }
 
-async function handleSessionChange(session: Session) {
+async function handleSessionChange(session: Session) {  // session carries user.id for per-user salt
   const token = session.access_token;
   if (!token) return;
 
@@ -237,12 +269,13 @@ async function handleSessionChange(session: Session) {
   const prevToken = lastToken || localStorage.getItem("symptom_scribe_last_token");
 
   try {
-    const newKey = await deriveKeyFromToken(token);
-    const newSearchKey = await deriveSearchKeyFromToken(token);
+    const userId = session.user?.id;
+    const newKey = await deriveKeyFromToken(token, userId);
+    const newSearchKey = await deriveSearchKeyFromToken(token, userId);
 
     if (prevToken && prevToken !== token) {
-      const oldKey = await deriveKeyFromToken(prevToken);
-      const oldSearchKey = await deriveSearchKeyFromToken(prevToken);
+      const oldKey = await deriveKeyFromToken(prevToken, userId);
+      const oldSearchKey = await deriveSearchKeyFromToken(prevToken, userId);
       if (onTokenRefreshCallback) {
         await onTokenRefreshCallback(oldKey, newKey, oldSearchKey, newSearchKey);
       }
