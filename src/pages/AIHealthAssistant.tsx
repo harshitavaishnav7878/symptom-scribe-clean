@@ -210,7 +210,15 @@ const AIHealthAssistant = () => {
         }),
       });
 
-      if (!response.ok || !response.body) throw new Error("Failed to start stream");
+      if (!response.ok || !response.body) {
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("AUTH_ERROR");
+  } else if (response.status >= 500) {
+    throw new Error("SERVER_ERROR");
+  } else {
+    throw new Error("UNKNOWN_ERROR");
+  }
+}
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -336,7 +344,20 @@ const AIHealthAssistant = () => {
     } catch (error) {
       console.error("Chat error:", error);
       dismissLoading();
-      showError("Analysis failed", "Failed to get AI response. Please try again.");
+
+      let errorMessage = "Failed to get AI response. Please try again.";
+
+      if (error instanceof TypeError) {
+        errorMessage = "Network error. Please check your connection.";
+      } else if (error instanceof Error) {
+        if (error.message === "AUTH_ERROR") {
+          errorMessage = "Session expired. Please log in again.";
+        } else if (error.message === "SERVER_ERROR") {
+          errorMessage = "Server error. Please try again later.";
+        }
+      }
+
+      showError("Analysis failed", errorMessage);
       setMessages((prev) => prev.filter((m) => !(m.role === "user" && m.text === userMessage)));
     } finally {
       setLoading(false);
