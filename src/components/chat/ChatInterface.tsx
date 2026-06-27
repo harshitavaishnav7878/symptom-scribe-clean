@@ -10,6 +10,11 @@ import { showSuccess, showError, showInfo, showLoading } from "@/lib/toast-helpe
 import { invalidateCache } from "@/lib/cached-queries";
 import { whenKeysReady } from "@/lib/encryption";
 import { encryptSymptom, db } from "@/lib/offline-db";
+import {
+  computeRiskScore,
+  parseSymptomConsultation,
+  shouldPersistConsultation,
+} from "@/lib/symptom-consultation";
 import ChatLoading from "./ChatLoading";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { type Json } from "@/integrations/supabase/types";
@@ -274,61 +279,19 @@ const ChatInterface = () => {
           )
         );
 
-        const possibleCauses: string[] = [];
-        const recommendations: string[] = [];
-        let severityLevel = "low";
-        
-        const lines = assistantContent.split('\n');
-        let currentSection = '';
-        
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (/possible\s+causes/i.test(trimmedLine)) {
-            currentSection = 'causes';
-          } else if (/severity\s+level/i.test(trimmedLine)) {
-            currentSection = 'severity';
-            const severityMatch = trimmedLine.match(/severity\s+level\s*:\s*[*_#`[]*\s*(low|moderate|high)/i);
-            if (severityMatch) {
-              severityLevel = severityMatch[1].toLowerCase();
-              showInfo("Severity Assessment", `AI rates this as ${severityLevel} severity`);
-            }
-          } else if (/recommendations/i.test(trimmedLine)) {
-            currentSection = 'recommendations';
-          } else {
-            const listMatch = trimmedLine.match(/^[-*•]\s+(.+)/) || trimmedLine.match(/^\d+\.\s+(.+)/);
-            if (listMatch) {
-              const item = listMatch[1].trim();
-              if (currentSection === 'causes') {
-                possibleCauses.push(item);
-              } else if (currentSection === 'recommendations') {
-                recommendations.push(item);
-              }
-            }
-          }
+        const {
+          possibleCauses,
+          recommendations,
+          severityLevel,
+        } = parseSymptomConsultation(assistantContent);
+
+        if (assistantContent.match(/severity(\s+level)?/i)) {
+          showInfo("Severity Assessment", `AI rates this as ${severityLevel} severity`);
         }
 
-        const computeRiskScore = (
-          severity: string,
-          causesCount: number,
-          recsCount: number
-        ): number => {
-          const causeWeight = causesCount * 2;
-          const recPenalty = recsCount === 0 ? 4 : 0;
-          if (severity === 'high') {
-            return Math.min(100, Math.max(70, 75 + causeWeight - recPenalty));
-          }
-          if (severity === 'moderate') {
-            return Math.min(69, Math.max(40, 50 + causeWeight - recPenalty));
-          }
-          return Math.min(39, Math.max(10, 20 + causeWeight - recPenalty));
-        };
         const riskScore = computeRiskScore(severityLevel, possibleCauses.length, recommendations.length);
 
-        const isMedicalAnalysis =
-          assistantContent.includes("Possible Causes") ||
-          assistantContent.includes("Severity Level");
-
-        if (isMedicalAnalysis) {
+        if (shouldPersistConsultation(assistantContent)) {
           const recordId = crypto.randomUUID();
           const record = {
             id: recordId,
