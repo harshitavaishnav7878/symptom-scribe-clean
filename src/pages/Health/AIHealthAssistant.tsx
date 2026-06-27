@@ -6,7 +6,22 @@ import { browserEnv } from "@/lib/env";
 import { invalidateCache } from "@/lib/cached-queries";
 import { whenKeysReady } from "@/lib/encryption";
 import { encryptSymptom, db, type OfflineSymptom } from "@/lib/offline-db";
-import { Volume2, VolumeX, Bot, Mic, MicOff, Send, Check, Thermometer, Wind, Brain, Utensils, BatteryLow } from "lucide-react";
+
+import { parseSymptomConsultation, shouldPersistConsultation } from "@/lib/symptom-consultation";
+import {
+  Volume2,
+  VolumeX,
+  Bot,
+  Mic,
+  MicOff,
+  Send,
+  Check,
+  Thermometer,
+  Wind,
+  Brain,
+  Utensils,
+  BatteryLow,
+} from "lucide-react";
 import { motion } from "framer-motion";
 
 const suggestions = [
@@ -196,7 +211,9 @@ const AIHealthAssistant = () => {
         content: m.text,
       }));
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token || browserEnv.supabasePublishableKey;
 
       const response = await fetch(browserEnv.getSupabaseFunctionUrl("symptom-analyzer"), {
@@ -264,37 +281,11 @@ const AIHealthAssistant = () => {
           data: { user },
         } = await supabase.auth.getUser();
         if (user) {
-          const possibleCauses: string[] = [];
-          const recommendations: string[] = [];
-          let severityLevel = "low";
+          const { possibleCauses, recommendations, severityLevel } =
+            parseSymptomConsultation(assistantContent);
 
-          const lines = assistantContent.split("\n");
-          let currentSection = "";
-
-          for (const line of lines) {
-            const trimmedLine = line.trim();
-            if (/possible\s+causes/i.test(trimmedLine)) {
-              currentSection = "causes";
-            } else if (/severity\s+level/i.test(trimmedLine)) {
-              currentSection = "severity";
-              const severityMatch = trimmedLine.match(
-                /severity\s+level\s*:\s*[*_#`[]*\s*(low|moderate|high)/i
-              );
-              if (severityMatch) {
-                severityLevel = severityMatch[1].toLowerCase();
-                showInfo("Severity Assessment", `AI rates this as ${severityLevel} severity`);
-              }
-            } else if (/recommendations/i.test(trimmedLine)) {
-              currentSection = "recommendations";
-            } else {
-              const listMatch =
-                trimmedLine.match(/^[-*•]\s+(.+)/) || trimmedLine.match(/^\d+\.\s+(.+)/);
-              if (listMatch) {
-                const item = listMatch[1].trim();
-                if (currentSection === "causes") possibleCauses.push(item);
-                else if (currentSection === "recommendations") recommendations.push(item);
-              }
-            }
+          if (assistantContent.match(/severity(\s+level)?/i)) {
+            showInfo("Severity Assessment", `AI rates this as ${severityLevel} severity`);
           }
 
           const riskScore =
@@ -304,40 +295,60 @@ const AIHealthAssistant = () => {
                 ? Math.floor(Math.random() * 30) + 40
                 : Math.floor(Math.random() * 30) + 10;
 
-          const recordId = crypto.randomUUID();
-          const record = {
-            id: recordId,
-            user_id: user.id,
-            symptoms: userMessage,
-            ai_analysis: assistantContent,
-            severity_level: severityLevel,
-            possible_causes: possibleCauses.length > 0 ? possibleCauses : null,
-            recommendations: recommendations.length > 0 ? recommendations : null,
-            risk_score: riskScore,
-            resolved: false,
-            created_at: new Date().toISOString(),
-          };
+          if (shouldPersistConsultation(assistantContent)) {
+            const recordId = crypto.randomUUID();
+            const record = {
+              id: recordId,
+              user_id: user.id,
+              symptoms: userMessage,
+              ai_analysis: assistantContent,
+              severity_level: severityLevel,
+              possible_causes: possibleCauses.length > 0 ? possibleCauses : null,
+              recommendations: recommendations.length > 0 ? recommendations : null,
+              risk_score: riskScore,
+              resolved: false,
+              created_at: new Date().toISOString(),
+            };
 
-          const keys = await whenKeysReady();
-          const encryptedRecord = await encryptSymptom(record as unknown as OfflineSymptom, keys.encryptionKey, keys.searchKey);
+            const keys = await whenKeysReady();
+            const encryptedRecord = await encryptSymptom(
+              record as unknown as OfflineSymptom,
+              keys.encryptionKey,
+              keys.searchKey
+            );
 
-          const { error: insertError } = await supabase.from("symptom_history").insert(encryptedRecord);
+            // Strip offline-only fields and search_tokens so we match the Supabase table schema
+            const {
+              pending_sync,
+              pending_update,
+              pending_delete,
+              search_tokens,
+              ...supabaseRecord
+            } = encryptedRecord;
 
-          if (insertError) {
-            console.error("Error saving symptom history:", insertError);
-            showError("Save failed", "Could not save to your health history");
-          } else {
-            await invalidateCache("symptom_history");
+            const { error: insertError } = await supabase
+              .from("symptom_history")
+              .insert(supabaseRecord);
 
-            // Save locally to Dexie immediately
-            await db.symptomHistory.put({
-              ...encryptedRecord,
-              pending_sync: 0,
-              pending_update: 0,
-              pending_delete: 0,
-            } as unknown as OfflineSymptom);
+            if (insertError) {
+              console.error("Error saving symptom history:", insertError);
+              showError("Save failed", "Could not save to your health history");
+            } else {
+              await invalidateCache("symptom_history");
 
-            showSuccess("Saved to history", "This analysis has been added to your health records");
+              // Save locally to Dexie immediately
+              await db.symptomHistory.put({
+                ...encryptedRecord,
+                pending_sync: 0,
+                pending_update: 0,
+                pending_delete: 0,
+              });
+
+              showSuccess(
+                "Saved to history",
+                "This analysis has been added to your health records"
+              );
+            }
           }
         }
       }
@@ -394,7 +405,7 @@ const AIHealthAssistant = () => {
               </div>
               <div className="w-full min-w-0 px-2">
                 <h2 className="text-base sm:text-lg font-semibold break-words">
-                  Hello! I'm your AI Health Assistant 
+                  Hello! I'm your AI Health Assistant
                 </h2>
                 <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto break-words">
                   I can help you understand your symptoms and provide health insights.{" "}

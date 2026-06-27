@@ -9,7 +9,12 @@ import { browserEnv } from "@/lib/env";
 import { showSuccess, showError, showInfo, showLoading } from "@/lib/toast-helpers";
 import { invalidateCache } from "@/lib/cached-queries";
 import { whenKeysReady } from "@/lib/encryption";
-import { encryptSymptom, db } from "@/lib/offline-db";
+import { encryptSymptom, db, type OfflineSymptom } from "@/lib/offline-db";
+import {
+  computeRiskScore,
+  parseSymptomConsultation,
+  shouldPersistConsultation,
+} from "@/lib/symptom-consultation";
 import ChatLoading from "./ChatLoading";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { type Json } from "@/integrations/supabase/types";
@@ -34,7 +39,8 @@ interface Message {
 
 const INITIAL_GREETING: Message = {
   role: "assistant",
-  content: "Hello! I'm your AI health assistant. Please describe your symptoms, and I'll help you understand possible causes and recommend self-care steps.\n\n⚠️ Remember: I provide general information only. For medical diagnosis or treatment, always consult a healthcare professional.",
+  content:
+    "Hello! I'm your AI health assistant. Please describe your symptoms, and I'll help you understand possible causes and recommend self-care steps.\n\n⚠️ Remember: I provide general information only. For medical diagnosis or treatment, always consult a healthcare professional.",
 };
 
 interface ChatSession {
@@ -54,7 +60,7 @@ const ChatInterface = () => {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -69,7 +75,9 @@ const ChatInterface = () => {
   const fetchSessions = async () => {
     try {
       setSessionsLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return;
 
       const { data, error } = await supabase
@@ -105,19 +113,16 @@ const ChatInterface = () => {
 
   const handleDeleteSession = async (sessionId: string) => {
     try {
-      const { error } = await supabase
-        .from("chat_sessions")
-        .delete()
-        .eq("id", sessionId);
+      const { error } = await supabase.from("chat_sessions").delete().eq("id", sessionId);
 
       if (error) throw error;
 
       showSuccess("Session Deleted", "Chat session was successfully removed");
-      
+
       if (activeSessionId === sessionId) {
         handleNewChat();
       }
-      
+
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
     } catch (err) {
       console.error("Error deleting session:", err);
@@ -142,7 +147,7 @@ const ChatInterface = () => {
     setIsLoading(true);
 
     let assistantContent = "";
-    
+
     const upsertAssistant = (chunk: string) => {
       assistantContent += chunk;
       setMessages((prev) => {
@@ -156,17 +161,23 @@ const ChatInterface = () => {
       });
     };
 
-    const { dismiss: dismissLoading } = showLoading("Analyzing symptoms...", "AI is processing your request");
+    const { dismiss: dismissLoading } = showLoading(
+      "Analyzing symptoms...",
+      "AI is processing your request"
+    );
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) {
         throw new Error("You must be logged in to chat with the assistant.");
       }
 
       let currentSessionId = activeSessionId;
       if (!currentSessionId) {
-        const title = userMessage.content.substring(0, 40) + (userMessage.content.length > 40 ? "..." : "");
+        const title =
+          userMessage.content.substring(0, 40) + (userMessage.content.length > 40 ? "..." : "");
         const { data: newSession, error: createError } = await supabase
           .from("chat_sessions")
           .insert({
@@ -196,25 +207,27 @@ const ChatInterface = () => {
       const previousHistory = messages.filter((_, i) => i !== 0);
       const recentContext = previousHistory.slice(-6);
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const token = session?.access_token || browserEnv.supabasePublishableKey;
 
       const response = await fetch(browserEnv.getSupabaseFunctionUrl("symptom-analyzer"), {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ messages: [...recentContext, userMessage] }),
       });
 
       if (!response.ok || !response.body) {
-        throw new Error('Failed to start stream');
+        throw new Error("Failed to start stream");
       }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let textBuffer = '';
+      let textBuffer = "";
       let streamDone = false;
 
       while (!streamDone) {
@@ -223,16 +236,16 @@ const ChatInterface = () => {
         textBuffer += decoder.decode(value, { stream: true });
 
         let newlineIndex: number;
-        while ((newlineIndex = textBuffer.indexOf('\n')) !== -1) {
+        while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
           let line = textBuffer.slice(0, newlineIndex);
           textBuffer = textBuffer.slice(newlineIndex + 1);
 
-          if (line.endsWith('\r')) line = line.slice(0, -1);
-          if (line.startsWith(':') || line.trim() === '') continue;
-          if (!line.startsWith('data: ')) continue;
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (line.startsWith(":") || line.trim() === "") continue;
+          if (!line.startsWith("data: ")) continue;
 
           const jsonStr = line.slice(6).trim();
-          if (jsonStr === '[DONE]') {
+          if (jsonStr === "[DONE]") {
             streamDone = true;
             break;
           }
@@ -242,7 +255,7 @@ const ChatInterface = () => {
             const content = parsed.choices?.[0]?.delta?.content as string | undefined;
             if (content) upsertAssistant(content);
           } catch {
-            textBuffer = line + '\n' + textBuffer;
+            textBuffer = line + "\n" + textBuffer;
             break;
           }
         }
@@ -251,8 +264,11 @@ const ChatInterface = () => {
       if (assistantContent) {
         dismissLoading();
         showSuccess("Analysis complete!", "Your symptoms have been analyzed");
-        
-        const finalMessages = [...newMessages, { role: "assistant" as const, content: assistantContent }];
+
+        const finalMessages = [
+          ...newMessages,
+          { role: "assistant" as const, content: assistantContent },
+        ];
 
         const { error: finalUpdateError } = await supabase
           .from("chat_sessions")
@@ -269,66 +285,29 @@ const ChatInterface = () => {
         setSessions((prev) =>
           prev.map((s) =>
             s.id === currentSessionId
-              ? { ...s, messages: finalMessages as unknown as Json, updated_at: new Date().toISOString() }
+              ? {
+                  ...s,
+                  messages: finalMessages as unknown as Json,
+                  updated_at: new Date().toISOString(),
+                }
               : s
           )
         );
 
-        const possibleCauses: string[] = [];
-        const recommendations: string[] = [];
-        let severityLevel = "low";
-        
-        const lines = assistantContent.split('\n');
-        let currentSection = '';
-        
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (/possible\s+causes/i.test(trimmedLine)) {
-            currentSection = 'causes';
-          } else if (/severity\s+level/i.test(trimmedLine)) {
-            currentSection = 'severity';
-            const severityMatch = trimmedLine.match(/severity\s+level\s*:\s*[*_#`[]*\s*(low|moderate|high)/i);
-            if (severityMatch) {
-              severityLevel = severityMatch[1].toLowerCase();
-              showInfo("Severity Assessment", `AI rates this as ${severityLevel} severity`);
-            }
-          } else if (/recommendations/i.test(trimmedLine)) {
-            currentSection = 'recommendations';
-          } else {
-            const listMatch = trimmedLine.match(/^[-*•]\s+(.+)/) || trimmedLine.match(/^\d+\.\s+(.+)/);
-            if (listMatch) {
-              const item = listMatch[1].trim();
-              if (currentSection === 'causes') {
-                possibleCauses.push(item);
-              } else if (currentSection === 'recommendations') {
-                recommendations.push(item);
-              }
-            }
-          }
+        const { possibleCauses, recommendations, severityLevel } =
+          parseSymptomConsultation(assistantContent);
+
+        if (assistantContent.match(/severity(\s+level)?/i)) {
+          showInfo("Severity Assessment", `AI rates this as ${severityLevel} severity`);
         }
 
-        const computeRiskScore = (
-          severity: string,
-          causesCount: number,
-          recsCount: number
-        ): number => {
-          const causeWeight = causesCount * 2;
-          const recPenalty = recsCount === 0 ? 4 : 0;
-          if (severity === 'high') {
-            return Math.min(100, Math.max(70, 75 + causeWeight - recPenalty));
-          }
-          if (severity === 'moderate') {
-            return Math.min(69, Math.max(40, 50 + causeWeight - recPenalty));
-          }
-          return Math.min(39, Math.max(10, 20 + causeWeight - recPenalty));
-        };
-        const riskScore = computeRiskScore(severityLevel, possibleCauses.length, recommendations.length);
+        const riskScore = computeRiskScore(
+          severityLevel,
+          possibleCauses.length,
+          recommendations.length
+        );
 
-        const isMedicalAnalysis =
-          assistantContent.includes("Possible Causes") ||
-          assistantContent.includes("Severity Level");
-
-        if (isMedicalAnalysis) {
+        if (shouldPersistConsultation(assistantContent)) {
           const recordId = crypto.randomUUID();
           const record = {
             id: recordId,
@@ -344,9 +323,19 @@ const ChatInterface = () => {
           };
 
           const keys = await whenKeysReady();
-          const encryptedRecord = await encryptSymptom(record as unknown as OfflineSymptom, keys.encryptionKey, keys.searchKey);
+          const encryptedRecord = await encryptSymptom(
+            record as unknown as OfflineSymptom,
+            keys.encryptionKey,
+            keys.searchKey
+          );
 
-          const { error: insertError } = await supabase.from("symptom_history").insert(encryptedRecord);
+          // Strip offline-only fields and search_tokens so we match the Supabase table schema
+          const { pending_sync, pending_update, pending_delete, search_tokens, ...supabaseRecord } =
+            encryptedRecord;
+
+          const { error: insertError } = await supabase
+            .from("symptom_history")
+            .insert(supabaseRecord);
 
           if (insertError) {
             console.error("Error saving symptom history:", insertError);
@@ -360,7 +349,7 @@ const ChatInterface = () => {
               pending_sync: 0,
               pending_update: 0,
               pending_delete: 0,
-            } as unknown as OfflineSymptom);
+            });
 
             showSuccess("Saved to history", "This analysis has been added to your health records");
           }
@@ -369,7 +358,8 @@ const ChatInterface = () => {
     } catch (error) {
       console.error("Chat error:", error);
       dismissLoading();
-      const errorMsg = error instanceof Error ? error.message : "Failed to get AI response. Please try again.";
+      const errorMsg =
+        error instanceof Error ? error.message : "Failed to get AI response. Please try again.";
       showError("Analysis failed", errorMsg);
       setMessages((prev) => prev.filter((m) => m !== userMessage));
     } finally {
@@ -441,7 +431,8 @@ const ChatInterface = () => {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      "{session.title || "Untitled Session"}" will be permanently deleted. This cannot be undone.
+                      "{session.title || "Untitled Session"}" will be permanently deleted. This
+                      cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -521,7 +512,12 @@ const ChatInterface = () => {
                 : "New Chat"}
             </span>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleNewChat} className="text-xs flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleNewChat}
+            className="text-xs flex items-center gap-1"
+          >
             <Plus className="w-3.5 h-3.5" />
             New
           </Button>
@@ -533,9 +529,7 @@ const ChatInterface = () => {
             <ChatMessage key={index} role={message.role} content={message.content} />
           ))}
 
-          {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
-            <ChatLoading />
-          )}
+          {isLoading && messages[messages.length - 1]?.role !== "assistant" && <ChatLoading />}
           <div ref={messagesEndRef} />
         </div>
 
@@ -553,18 +547,22 @@ const ChatInterface = () => {
               />
               <div className="flex items-center justify-between px-1">
                 <p className="text-xs text-muted-foreground select-none">
-                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">Enter</kbd>
-                  {" "}to send{" · "}
-                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">Shift+Enter</kbd>
-                  {" "}for new line
+                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
+                    Enter
+                  </kbd>{" "}
+                  to send{" · "}
+                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
+                    Shift+Enter
+                  </kbd>{" "}
+                  for new line
                 </p>
                 <p
                   className={`text-xs tabular-nums select-none transition-colors ${
                     input.length >= MAX_CHARS
                       ? "text-destructive font-semibold"
                       : input.length >= MAX_CHARS * 0.85
-                      ? "text-orange-500"
-                      : "text-muted-foreground"
+                        ? "text-orange-500"
+                        : "text-muted-foreground"
                   }`}
                 >
                   {input.length}/{MAX_CHARS}
