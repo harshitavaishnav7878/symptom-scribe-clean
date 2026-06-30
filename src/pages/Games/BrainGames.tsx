@@ -1618,9 +1618,8 @@ const BrainGames = () => {
                             key={index} 
                             className="[perspective:1000px] w-full aspect-square relative"
                           >
-                            <motion.div
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
+                            <div
+                              
                               role="button"
                               tabIndex={0}
                               aria-label={`Memory card ${index + 1}`}
@@ -1644,7 +1643,7 @@ const BrainGames = () => {
                               <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] bg-gradient-to-br from-primary to-primary-glow text-white rounded-2xl sm:rounded-3xl flex items-center justify-center text-3xl sm:text-5xl shadow-xl shadow-primary/20">
                                 <span>{["🫀", "🧠", "💊", "🏃"][card]}</span>
                               </div>
-                            </motion.div>
+                            </div>
                           </div>
                         );
                       })}
