@@ -38,7 +38,7 @@ on public.mood_logs(logged_at);
 create table if not exists public.challenges (
     id uuid primary key default gen_random_uuid(),
 
-    title text not null,
+    title text not null unique,
 
     description text,
 
@@ -68,7 +68,7 @@ values
 ('Morning Walk', 'Take a morning walk.', 'Fitness', '🚶', 7, 1, 'walk'),
 ('Meditation', 'Practice meditation daily.', 'Mindfulness', '🧘', 7, 10, 'minutes'),
 ('Sleep Well', 'Sleep at least 8 hours.', 'Wellness', '😴', 7, 8, 'hours')
-on conflict do nothing;
+on conflict (title) do nothing;
 
 
 -- User Challenges
@@ -121,7 +121,7 @@ on public.user_challenges(status);
 create table if not exists public.badges (
     id uuid primary key default gen_random_uuid(),
 
-    name text not null,
+    name text not null unique,
 
     description text,
 
@@ -171,7 +171,7 @@ values
 ('Consistency', 'Maintain a 7-day streak.', '🔥', 'streak', 7),
 ('Champion', 'Complete 10 challenges.', '🏆', 'challenge_complete', 10),
 ('Mood Master', 'Log your mood for 30 days.', '😊', 'mood_logs', 30)
-on conflict do nothing;
+on conflict (name) do nothing;
 
 
 -- Row Level Security (RLS)
@@ -186,7 +186,8 @@ alter table public.user_badges enable row level security;
 
 -- Mood Logs Policies
 
-
+drop policy if exists "Users can manage their own mood logs"
+on public.mood_logs;
 create policy "Users can manage their own mood logs"
 on public.mood_logs
 for all
@@ -196,6 +197,8 @@ with check (auth.uid() = user_id);
 
 -- Challenges Policies
 
+drop policy if exists "Anyone can view challenges"
+on public.challenges;
 create policy "Anyone can view challenges"
 on public.challenges
 for select
@@ -204,7 +207,8 @@ using (true);
 
 -- User Challenges Policies
 
-
+drop policy if exists "Users can manage their own challenges"
+on public.user_challenges;
 create policy "Users can manage their own challenges"
 on public.user_challenges
 for all
@@ -214,17 +218,22 @@ with check (auth.uid() = user_id);
 
 -- Badges Policies
 
-
+drop policy if exists "Anyone can view badges"
+on public.badges;
 create policy "Anyone can view badges"
 on public.badges
 for select
 using (true);
 
+drop policy if exists "Users can view their own badges"
+on public.user_badges;
 create policy "Users can view their own badges"
 on public.user_badges
 for select
 using (auth.uid() = user_id);
 
+drop policy if exists "Users can insert their own badges"
+on public.user_badges;
 create policy "Users can insert their own badges"
 on public.user_badges
 for insert
@@ -243,11 +252,15 @@ begin
 end;
 $$;
 
+drop trigger if exists update_mood_logs_updated_at
+on public.mood_logs;
 create trigger update_mood_logs_updated_at
 before update on public.mood_logs
 for each row
 execute function public.update_updated_at_column();
 
+drop trigger if exists update_challenges_updated_at
+on public.challenges;
 create trigger update_challenges_updated_at
 before update on public.challenges
 for each row

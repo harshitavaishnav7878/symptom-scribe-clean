@@ -105,7 +105,7 @@ export default function MoodCalendarView({ moodLogs, onLogMood }: Props) {
             {logStatus === "error" && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
                 <span>⚠️</span>
-                <span>Could not save mood — database is being set up. Try again soon!</span>
+                <span>Could not save mood. Please try again.</span>
               </div>
             )}
             {logStatus === "success" && (
