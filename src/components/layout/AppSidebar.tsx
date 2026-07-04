@@ -131,8 +131,11 @@ export function AppSidebar() {
                 <>
                   
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild className="py-2">
-                      <NavLink to={item.url} end className={getNavCls} onClick={handleNavClick}>
+                    <SidebarMenuButton
+                      asChild
+                      className="py-2 transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-md"
+                    >
+                      <NavLink to={item.url} end className={`${getNavCls} transition-all duration-300 rounded-md`} onClick={handleNavClick}>
                         <item.icon className="h-[17px] w-[17px]" />
                         {!isCollapsed && <span className="text-[13.5px]">{item.title}</span>}
                       </NavLink>
